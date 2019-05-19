@@ -1,0 +1,28 @@
+dist: xenial
+language: cpp
+
+before_script:
+    # Rewrite /etc/apt/soures.list for C++17
+  - sudo echo "deb http://archive.ubuntu.com/ubuntu/ bionic main" > /etc/apt/sources.list
+  - sudo echo "deb http://archive.ubuntu.com/ubuntu/ bionic-updates main" >> /etc/apt/sources.list
+
+    # Add my repository with libasync :)
+  - sudo echo "deb https://dl.bintray.com/ansochnev/otus-cpp/ homework main" >> /etc/apt/sources.list
+  - curl https://bintray.com/user/downloadSubjectPublicKey?username=bintray > bintray-public-key.asc
+  - sudo apt-key add bintray-public-key.asc
+  
+  - sudo apt update
+  - sudo apt-get install g++ cmake libboost-system-dev async -y
+
+script:
+  - export ASYNC_LIBRARY=/usr/include/libasync
+
+  - cmake .
+  - cmake --build .
+  - cmake --build . --target package
+
+deploy:
+  - provider: script
+    skip_cleanup: true
+    script:
+      - curl -T bulk_server-1.0.$TRAVIS_BUILD_NUMBER.deb -uansochnev:$BINTRAY_API_KEY "https://api.bintray.com/content/ansochnev/otus-cpp/bulk_server/$TRAVIS_BUILD_NUMBER/pool/main/h12/bulk_server-1.0.$TRAVIS_BUILD_NUMBER.deb;deb_distribution=homework;deb_component=main;deb_architecture=amd64;publish=1"
