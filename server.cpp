@@ -7,8 +7,16 @@
 
 #include "input_mux.h"
 
+class Updatable
+{
+public:
+    virtual void update() = 0;
+};
+
 class Session : public std::enable_shared_from_this<Session>
 {
+    Updatable* m_owner;
+    
     boost::asio::ip::tcp::socket m_socket;
     char m_buf[1024];
 
@@ -18,10 +26,11 @@ class Session : public std::enable_shared_from_this<Session>
     InputMux *m_mux;
 
 public:
-    Session(boost::asio::ip::tcp::socket sock, 
+    Session(Updatable* owner,
+            boost::asio::ip::tcp::socket sock, 
             async::handle_t shared, 
             int bulk)
-        : m_socket(std::move(sock)), m_shared_context(shared)
+        : m_owner(owner), m_socket(std::move(sock)), m_shared_context(shared)
 
     {
         async::handle_t m_private_context = async::connect(bulk);
@@ -33,6 +42,7 @@ public:
         m_socket.close();
         async::disconnect(m_private_context);
         delete m_mux;
+        m_owner->update();
     }
 
     void start() 
@@ -55,13 +65,14 @@ private:
     }
 };
 
-class Server 
+class Server : public Updatable
 {
     boost::asio::ip::tcp::acceptor m_acceptor;
     boost::asio::ip::tcp::socket   m_socket;
 
     async::handle_t m_shared_context;
     int m_bulk;
+    int m_session_counter;
 
 public:
     Server(boost::asio::io_service& service, short port, int bulk) 
@@ -70,10 +81,11 @@ public:
                      boost::asio::ip::tcp::endpoint(
                          boost::asio::ip::tcp::v4(), port)), 
         m_socket(service),
-        m_bulk(bulk)
+        m_shared_context(nullptr),
+        m_bulk(bulk),
+        m_session_counter(0)
     {
         async::init();
-        m_shared_context = async::connect(bulk);
         do_accept();
     }
 
@@ -84,17 +96,33 @@ public:
         async::close();
     }
 
+    void update() override
+    {
+        if (--m_session_counter == 0) {
+            async::disconnect(m_shared_context);
+            m_shared_context = nullptr;
+        }
+    }
+
 private:
     void do_accept()
     {
         m_acceptor.async_accept(m_socket, 
             [this](const boost::system::error_code& err) 
             {
-                if (!err) {
-                    std::make_shared<Session>(std::move(m_socket), 
-                                              m_shared_context,
-                                              m_bulk)->start();
+                if (err) {
+                    return;
                 }
+                
+                if (!m_shared_context) {
+                    m_shared_context = async::connect(m_bulk);
+                }
+
+                std::make_shared<Session>(this,
+                                          std::move(m_socket), 
+                                          m_shared_context,
+                                          m_bulk)->start();
+                ++m_session_counter;
                 this->do_accept();
             });
     }
