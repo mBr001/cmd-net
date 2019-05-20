@@ -23,5 +23,5 @@ apt-get install bulk_server async
 
 Run
 ```
-bulk_server <port> [size]
+bulk_server <port> <size>
 ```

@@ -130,9 +130,22 @@ private:
 
 int main(int argc, char* argv[]) 
 {
-    boost::asio::io_service service;
-    Server server(service, 9000, 3);
-    service.run();
+    if (argc != 3) {
+        std::cout << "too few arguments" << std::endl;
+        return 1;
+    }
+
+    try {
+        int port = std::stoi(argv[1]);
+        int bulk = std::stoi(argv[2]);
+
+        boost::asio::io_service service;
+        Server server(service, port, bulk);
+        service.run();
+    }
+    catch(std::exception& e) {
+        std::cout << e.what();
+    }
 
     return 0;
 }
