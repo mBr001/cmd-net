@@ -1,40 +1,75 @@
 #include <iostream>
+#include <sstream>
+
 #include <boost/asio.hpp>
 #include <libasync/async.h>
 
-void client_session(boost::asio::ip::tcp::socket sock) {
-    while (true) {
-        try {
-            char data[4];
-            size_t len = sock.read_some(boost::asio::buffer(data));
-            std::cout << "receive " << len << "=" << std::string{data, len} << std::endl;
-            boost::asio::write(sock, boost::asio::buffer("pong", 4));
-        }
-        catch (const std::exception &e) {
-            std::cerr << e.what() << std::endl;
-            break;
-        }
-    }
-}
+class Session
+{
+    boost::asio::ip::tcp::socket m_socket;
+    char m_buf[1024];
 
-int main(int, char *[]) {
+public:
+    Session(boost::asio::ip::tcp::socket sock)
+        : m_socket(std::move(sock))
+    {
+        do_read();
+    }
+
+private:
+    void do_read()
+    {
+        m_socket.async_read_some(boost::asio::buffer(m_buf),
+            [this](const boost::system::error_code& err, std::size_t n)
+            {
+                if (err) {
+                    std::cout << err.message() << std::endl;
+                    return;
+                }               
+                do_read();
+            });
+    }
+};
+
+class Server 
+{
+    boost::asio::ip::tcp::acceptor  m_acceptor;
+    boost::asio::ip::tcp::socket    m_server_socket;
+
+    Session *m_client_session;
+
+public:
+    Server(boost::asio::io_service& service, short port) 
+        : 
+        m_acceptor(service, 
+                     boost::asio::ip::tcp::endpoint(
+                         boost::asio::ip::tcp::v4(), port)), 
+        m_server_socket(service),
+        m_client_session(nullptr)
+    {
+        do_accept();
+    }
+
+private:
+    void do_accept()
+    {
+        m_acceptor.async_accept(m_server_socket, 
+            [this](const boost::system::error_code& err) 
+            {
+                std::cout << "accepted" << std::endl;
+                std::cout << err.message() << std::endl;
+                m_client_session = new Session(std::move(m_server_socket));
+                this->do_accept();
+            });
+    }
+};
+
+int main(int argc, char* argv[]) 
+{
 
     boost::asio::io_service service;
-    boost::asio::ip::tcp::endpoint ep(boost::asio::ip::tcp::v4(), 9999);
-    
-    boost::asio::ip::tcp::acceptor acc(service, ep);
-
-    async::init();
-    async::handle_t handle = async::connect(2);
-    async::receive(handle, "1\n2\n3\n", 6);
-    async::disconnect(handle);
-    async::close();
-
-    while (true) {
-        auto sock = boost::asio::ip::tcp::socket(service);
-        acc.accept(sock);
-        client_session(std::move(sock));
-    }
+    Server server(service, 9000);
+    service.run();
 
     return 0;
 }
